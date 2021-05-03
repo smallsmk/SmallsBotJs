@@ -1,0 +1,5 @@
+# Node Build Files
+node_modules
+
+# Secrets
+config.json
