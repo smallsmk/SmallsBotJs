@@ -6,18 +6,23 @@ const {
 const ytdl = require('ytdl-core');
 const client = new Discord.Client();
 
-// Server ID -> QueueContruct
-/* QueueContruct 
-  {
-    textChannel: ...,
-    voiceChannel: ...,
-    connection: null,
-    songs: [{title: "...", url:"..."},...],
-    volume: 5,
-    playing: true
+// Server ID -> BotState
+/*
+  BotState {
+    Player -> BlackJackInfo
+    {
+ 
+    },
+    MusicInfo 
+    {
+      textChannel: ...,
+      voiceChannel: ...,
+      connection: null,
+      songs: [{title: "...", url:"..."},...],
+    }
   }
 */
-const queue = new Map();
+const botState = new Map();
 
 client.once("ready", () => {
   console.log("Ready!");
@@ -31,7 +36,7 @@ client.once("disconnect", () => {
   console.log("Disconnect!");
 });
 
-const commandMap = new Map([
+const musicCommandMap = new Map([
   ["play", execute],
   ["skip", skip],
   ["stop", stop],
@@ -44,19 +49,38 @@ client.on("message", async message => {
   if (message.author.bot) return;
   if (!message.content.startsWith(prefix)) return;
 
-  const serverQueue = queue.get(message.guild.id);
+  var serverState = botState.get(message.guild.id);
+
+  if (!serverState) {
+    const playerInfo = new Map()
+    serverState = {
+      musicInfo: {
+        textChannel: null,
+        voiceChannel: null,
+        connection: null,
+        songs: []
+      },
+      blackJackInfo: playerInfo
+    }
+    botState.set(message.guild.id, serverState);
+  }
 
   const args = message.content.split(" ");
   
   const command = args[0].substring(prefix.length)
 
-  if (commandMap.has(command)) {
-    commandMap.get(command)(message, serverQueue)
+  if (musicCommandMap.has(command)) {
+    musicCommandMap.get(command)(message, serverState.musicInfo)
   } else {
     message.channel.send("You need to enter a valid command!");
   }
 });
-async function execute(message, serverQueue) {
+
+// Black Jack Commands
+
+// Music Commands
+
+async function execute(message, musicInfo) {
   const args = message.content.split(" ");
 
   const voiceChannel = message.member.voice.channel;
@@ -78,80 +102,83 @@ async function execute(message, serverQueue) {
     url: songInfo.videoDetails.video_url
   };
 
-  if (!serverQueue) {
-    const queueContruct = {
-      textChannel: message.channel,
-      voiceChannel: voiceChannel,
-      connection: null,
-      songs: [],
-      volume: 5,
-      playing: true
-    };
+  if (!musicInfo.connection) {
 
-    queue.set(message.guild.id, queueContruct);
+    musicInfo.textChannel = message.channel
+    musicInfo.voiceChannel = voiceChannel
 
-    queueContruct.songs.push(song);
+    musicInfo.songs.push(song);
 
     try {
       var connection = await voiceChannel.join();
-      queueContruct.connection = connection;
-      play(message.guild, queueContruct.songs[0]);
+      musicInfo.connection = connection;
+      play(message.guild, musicInfo);
     } catch (err) {
       console.log(err);
-      queue.delete(message.guild.id);
+      if (musicInfo.connection) {
+        musicInfo.voiceChannel.leave();
+        musicInfo.connection = null;
+      }
       return message.channel.send(err);
     }
   } else {
-    serverQueue.songs.push(song);
+    musicInfo.songs.push(song);
     return message.channel.send(`${song.title} has been added`);
   }
 }
 
-function skip(message, serverQueue) {
+function skip(message, musicInfo) {
   if (!message.member.voice.channel)
     return message.channel.send(
       "You need to join the channel first."
     );
-  if (!serverQueue)
+  if (musicInfo.songs.length == 0)
     return message.channel.send("There's nothing to skip.");
-  serverQueue.connection.dispatcher.end();
+  musicInfo.connection.dispatcher.end();
+  message.channel.send("Lol Oops?");
 }
 
-function stop(message, serverQueue) {
+function stop(message, musicInfo) {
   if (!message.member.voice.channel)
     return message.channel.send(
       "You need to join the channel first."
     );
-  serverQueue.songs = [];
-  serverQueue.connection.dispatcher.end();
+    musicInfo.songs = [];
+    musicInfo.connection.dispatcher.end();
 }
 
-function pause(message, serverQueue) {
+function pause(message, musicInfo) {
 	if (!message.member.voice.channel)
 	  return message.channel.send(
 		  "You need to join the channel first."
 	  );
-	serverQueue.connection.dispatcher.pause();
+    musicInfo.connection.dispatcher.pause();
 }
 
-function resume(message, serverQueue) {
+function resume(message, musicInfo) {
   if(!message.member.voice.channel)
     return message.channel.send(
       "You need to join the channel first."
     );
-  serverQueue.connection.dispatcher.resume();
+    musicInfo.connection.dispatcher.resume();
 }
 
-function displayQueue(message, serverQueue) {
+function displayQueue(message, musicInfo) {
   if(!message.member.voice.channel)
     return message.channel.send(
       "You need to join the channel first."
     );
+
+  if (musicInfo.songs.length == 0) {
+    return message.channel.send(
+      "Lol there is nothing here!"
+    )
+  }
 
   var queueMessage = ""
-  for(var i = 0; i < serverQueue.songs.length; i++) {
-    queueMessage += `${i}) ${serverQueue.songs[i].title}`
-    if (i != serverQueue.songs.length - 1) {
+  for(var i = 0; i < musicInfo.songs.length; i++) {
+    queueMessage += `${i}) ${musicInfo.songs[i].title}`
+    if (i != musicInfo.songs.length - 1) {
       queueMessage += "\n"
     }
   }
@@ -159,23 +186,24 @@ function displayQueue(message, serverQueue) {
   message.channel.send(queueMessage)
 }
 
-function play(guild, song) {
-  const serverQueue = queue.get(guild.id);
-  if (!song) {
-    serverQueue.voiceChannel.leave();
-    queue.delete(guild.id);
+function play(guild, musicInfo) {
+  if (musicInfo.songs.length == 0) {
+    musicInfo.voiceChannel.leave();
+    musicInfo.connection = null;
     return;
   }
 
-  const dispatcher = serverQueue.connection
+  const song = musicInfo.songs[0];
+
+  const dispatcher = musicInfo.connection
     .play(ytdl(song.url))
     .on("finish", () => {
-      serverQueue.songs.shift();
-      play(guild, serverQueue.songs[0]);
+      musicInfo.songs.shift();
+      play(guild, musicInfo);
     })
     .on("error", error => console.error(error));
-  dispatcher.setVolumeLogarithmic(serverQueue.volume / 5);
-  serverQueue.textChannel.send(`Start playing: **${song.title}**`);
+  dispatcher.setVolumeLogarithmic(1);
+  musicInfo.textChannel.send(`Start playing: **${song.title}**`);
 }
 
 client.login(token);
