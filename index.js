@@ -149,9 +149,16 @@ function displayQueue(message, serverQueue) {
     return message.channel.send(
       "You need to join the channel first."
     );
-  message.channel.send(
-    JSON.stringify(serverQueue.songs)
-  )
+
+  var queueMessage = ""
+  for(var i = 0; i < serverQueue.songs.length; i++) {
+    queueMessage += `${i}) ${serverQueue.songs[i].title}`
+    if (i != serverQueue.songs.length - 1) {
+      queueMessage += "\n"
+    }
+  }
+
+  message.channel.send(queueMessage)
 }
 
 function play(guild, song) {
