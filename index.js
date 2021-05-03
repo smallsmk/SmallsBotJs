@@ -31,32 +31,30 @@ client.once("disconnect", () => {
   console.log("Disconnect!");
 });
 
+const commandMap = new Map([
+  ["play", execute],
+  ["skip", skip],
+  ["stop", stop],
+  ["pause", pause],
+  ["resume", resume],
+  ["queue", displayQueue]
+]);
+
 client.on("message", async message => {
   if (message.author.bot) return;
   if (!message.content.startsWith(prefix)) return;
 
   const serverQueue = queue.get(message.guild.id);
 
-  if (message.content.startsWith(`${prefix}play`)) {
-    execute(message, serverQueue);
-    return;
-  } else if (message.content.startsWith(`${prefix}skip`)) {
-    skip(message, serverQueue);
-    return;
-  } else if (message.content.startsWith(`${prefix}stop`)) {
-    stop(message, serverQueue);
-	  return;
-  } else if (message.content.startsWith(`${prefix}pause`)) {
-    pause(message, serverQueue);
-	  return;
-	} else if (message.content.startsWith(`${prefix}resume`)) {
-    resume(message, serverQueue);
-    return;
-  } else if (message.content.startsWith(`${prefix}queue`)) {
-    displayQueue(message, serverQueue);
-    return;
-  } else { message.channel.send("You need to enter a valid command!");
-}
+  const args = message.content.split(" ");
+  
+  const command = args[0].substring(prefix.length)
+
+  if (commandMap.has(command)) {
+    commandMap.get(command)(message, serverQueue)
+  } else {
+    message.channel.send("You need to enter a valid command!");
+  }
 });
 async function execute(message, serverQueue) {
   const args = message.content.split(" ");
